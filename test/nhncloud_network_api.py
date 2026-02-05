@@ -111,7 +111,7 @@ def create_keypair(
 
     r = requests.post(
         f"{compute_base}/v2/{tenant_id}/os-keypairs",
-        headers=_h(token),
+        headers=_headers(token),
         json=payload,
         timeout=30,
     )
