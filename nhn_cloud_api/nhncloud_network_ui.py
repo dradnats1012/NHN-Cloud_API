@@ -6,9 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 import streamlit as st
 
-# -----------------------------
-# Constants
-# -----------------------------
 IDENTITY_BASE = "https://api-identity-infrastructure.nhncloudservice.com"
 TOKEN_URI = "/v2.0/tokens"
 
@@ -17,9 +14,6 @@ DEFAULT_COMPUTE_BASE = "https://kr1-api-instance-infrastructure.nhncloudservice.
 DEFAULT_IMAGE_BASE = "https://kr1-api-image-infrastructure.nhncloudservice.com"
 
 
-# -----------------------------
-# Errors / helpers
-# -----------------------------
 class NhcApiError(RuntimeError):
     pass
 
@@ -57,9 +51,6 @@ def _validate_network_inputs(vpc_cidr: str, subnet_cidr: str, gateway: Optional[
             raise ValueError(f"Gateway({gw_ip})가 서브넷 CIDR({subnet_net}) 범위 밖입니다.")
 
 
-# -----------------------------
-# Identity API
-# -----------------------------
 def issue_token(tenant_id: str, username: str, api_password: str) -> str:
     body = {
         "auth": {
@@ -72,9 +63,6 @@ def issue_token(tenant_id: str, username: str, api_password: str) -> str:
     return r.json()["access"]["token"]["id"]
 
 
-# -----------------------------
-# Network API (VPC / Subnet / SG)
-# -----------------------------
 def list_vpcs(network_base: str, token: str) -> List[Dict[str, Any]]:
     r = requests.get(f"{network_base}/v2.0/vpcs", headers=_h(token), timeout=30)
     _raise_for_bad(r)
@@ -88,17 +76,12 @@ def list_subnets(network_base: str, token: str) -> List[Dict[str, Any]]:
 
 
 def list_security_groups(network_base: str, token: str) -> List[Dict[str, Any]]:
-    # OpenStack Neutron compatible path
     r = requests.get(f"{network_base}/v2.0/security-groups", headers=_h(token), timeout=30)
     _raise_for_bad(r)
     return r.json().get("security_groups", [])
 
 
-# -----------------------------
-# Compute API (images / flavors / keypairs / servers)
-# -----------------------------
 def list_images(image_base: str, token: str) -> List[Dict[str, Any]]:
-    # Image API (Glance): GET /v2/images
     r = requests.get(f"{image_base}/v2/images", headers=_h(token), timeout=30)
     _raise_for_bad(r)
     return r.json().get("images", [])
@@ -107,7 +90,6 @@ def list_images(image_base: str, token: str) -> List[Dict[str, Any]]:
 def list_flavors(compute_base: str, token: str, tenant_id: str) -> List[Dict[str, Any]]:
     r = requests.get(f"{compute_base}/v2/{tenant_id}/flavors/detail", headers=_h(token), timeout=30)
     if r.status_code == 404:
-        # some setups only provide /flavors
         r = requests.get(f"{compute_base}/v2/{tenant_id}/flavors", headers=_h(token), timeout=30)
     _raise_for_bad(r)
     return r.json().get("flavors", [])
@@ -117,7 +99,6 @@ def list_keypairs(compute_base: str, token: str, tenant_id: str) -> List[Dict[st
     r = requests.get(f"{compute_base}/v2/{tenant_id}/os-keypairs", headers=_h(token), timeout=30)
     _raise_for_bad(r)
     keypairs = r.json().get("keypairs", [])
-    # normalize
     out = []
     for item in keypairs:
         kp = item.get("keypair", item)
@@ -144,15 +125,11 @@ def create_instance(
         "name": name,
         "imageRef": image_id,
         "flavorRef": flavor_id,
-        # NHN에서 subnet 키를 받는 경우가 있고, 환경에 따라 network uuid를 요구하는 경우도 있음.
-        # 우선 subnet id로 시도하고, 실패 시 에러 바디로 요구 값을 확인.
         "networks": [{"subnet": subnet_id}],
         "security_groups": [{"name": n} for n in sg_names] if sg_names else [],
         "min_count": 1,
         "max_count": 1,
 
-        # 일부 환경에서는 imageRef만으로 부팅 디스크 생성이 불가하고,
-        # block_device_mapping_v2로 루트 볼륨(부팅 볼륨)을 명시해야 함.
         "block_device_mapping_v2": [
             {
                 "source_type": "image",
@@ -178,9 +155,6 @@ def create_instance(
     return r.json().get("server", r.json())
 
 
-# -----------------------------
-# UI
-# -----------------------------
 st.title("NHN Cloud: 기존 리소스 선택 → 인스턴스 생성")
 
 with st.form("auth"):
@@ -217,7 +191,6 @@ if not st.session_state.token:
 
 st.divider()
 
-# Load existing resources
 st.subheader("1) 기존 리소스 불러오기")
 
 col1, col2 = st.columns(2)
@@ -248,7 +221,6 @@ if refresh or "resources" not in st.session_state:
 
 resources = st.session_state.resources
 
-# Small debug
 with st.expander("조회 결과 미리보기(디버그)"):
     st.json(
         {
@@ -265,7 +237,6 @@ st.divider()
 
 st.subheader("2) 인스턴스 생성 입력")
 
-# Build select options
 
 def _opt(items: List[Dict[str, Any]], label_fn) -> Tuple[List[str], Dict[str, Dict[str, Any]]]:
     mapping: Dict[str, Dict[str, Any]] = {}
@@ -293,7 +264,7 @@ image_labels, image_map = _opt(
         f" | min_ram={im.get('min_ram',0)}MB, min_disk={im.get('min_disk',0)}GB"
     )
 )
-# Flavor는 이미지 선택 후 필터링해서 만들기 때문에 여기서는 만들지 않음.
+
 keypair_labels, keypair_map = _opt(
     resources.get("keypairs", []),
     lambda kp: f"{kp.get('name','')} ({kp.get('name','')})"
@@ -315,7 +286,6 @@ with colB:
         disabled=not bool(image_labels),
     )
 
-    # 이미지 최소 요구사항(min_ram/min_disk)에 맞는 Flavor만 표시(기본 ON)
     filter_flavors = st.checkbox(
         "이미지 요구사항을 만족하는 Flavor만 보기",
         value=True,
@@ -431,7 +401,6 @@ if create_btn:
         st.write("### 응답")
         st.json(server)
 
-        # Common: server id in response
         sid = server.get("id")
         if sid:
             st.info(f"server_id: {sid}")

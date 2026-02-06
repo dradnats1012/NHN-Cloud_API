@@ -64,7 +64,6 @@ def create_subnet(
     gateway: Optional[str],
     enable_dhcp: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    #Create a VPC subnet.
 
 
     subnet_obj: Dict[str, Any] = {
@@ -73,11 +72,9 @@ def create_subnet(
         "cidr": cidr,
     }
 
-    # NOTE: In responses the field name is `gateway` (not gateway_ip).
     if gateway:
         subnet_obj["gateway"] = gateway
 
-    # Some environments allow/return enable_dhcp; include only if explicitly set.
     if enable_dhcp is not None:
         subnet_obj["enable_dhcp"] = enable_dhcp
 
@@ -100,11 +97,6 @@ def create_keypair(
     name: str,
     public_key: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    POST /v2/{tenantId}/os-keypairs
-    - public_key 비우면 새 키페어 생성
-    - public_key 주면 기존 공개키 등록
-    """
     payload: Dict[str, Any] = {"keypair": {"name": name}}
     if public_key and public_key.strip():
         payload["keypair"]["public_key"] = public_key.strip()
@@ -117,5 +109,4 @@ def create_keypair(
     )
     _raise_for_bad(r)
 
-    # 응답은 보통 {"keypair": {...}} 형태
     return r.json().get("keypair", r.json())

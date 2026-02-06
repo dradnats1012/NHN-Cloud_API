@@ -6,9 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 import streamlit as st
 
-# -----------------------------
-# Constants
-# -----------------------------
 IDENTITY_BASE = "https://api-identity-infrastructure.nhncloudservice.com"
 TOKEN_URI = "/v2.0/tokens"
 
@@ -17,9 +14,6 @@ DEFAULT_COMPUTE_BASE = "https://kr1-api-instance-infrastructure.nhncloudservice.
 DEFAULT_IMAGE_BASE = "https://kr1-api-image-infrastructure.nhncloudservice.com"
 
 
-# -----------------------------
-# Errors / helpers
-# -----------------------------
 class NhcApiError(RuntimeError):
     pass
 
@@ -57,9 +51,7 @@ def _validate_network_inputs(vpc_cidr: str, subnet_cidr: str, gateway: Optional[
             raise ValueError(f"Gateway({gw_ip})가 서브넷 CIDR({subnet_net}) 범위 밖입니다.")
 
 
-# -----------------------------
-# Identity API
-# -----------------------------
+
 def issue_token(tenant_id: str, username: str, api_password: str) -> str:
     body = {
         "auth": {
@@ -72,9 +64,7 @@ def issue_token(tenant_id: str, username: str, api_password: str) -> str:
     return r.json()["access"]["token"]["id"]
 
 
-# -----------------------------
-# Network API (VPC / Subnet / SG)
-# -----------------------------
+
 def list_vpcs(network_base: str, token: str) -> List[Dict[str, Any]]:
     r = requests.get(f"{network_base}/v2.0/vpcs", headers=_h(token), timeout=30)
     _raise_for_bad(r)
@@ -94,9 +84,7 @@ def list_security_groups(network_base: str, token: str) -> List[Dict[str, Any]]:
     return r.json().get("security_groups", [])
 
 
-# -----------------------------
-# Compute API (images / flavors / keypairs / servers)
-# -----------------------------
+
 def list_images(image_base: str, token: str) -> List[Dict[str, Any]]:
     # Image API (Glance): GET /v2/images
     r = requests.get(f"{image_base}/v2/images", headers=_h(token), timeout=30)
@@ -117,7 +105,7 @@ def list_keypairs(compute_base: str, token: str, tenant_id: str) -> List[Dict[st
     r = requests.get(f"{compute_base}/v2/{tenant_id}/os-keypairs", headers=_h(token), timeout=30)
     _raise_for_bad(r)
     keypairs = r.json().get("keypairs", [])
-    # normalize
+
     out = []
     for item in keypairs:
         kp = item.get("keypair", item)
@@ -132,11 +120,7 @@ def create_keypair(
     name: str,
     public_key: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    POST /v2/{tenant_id}/os-keypairs
-    - public_key가 없으면: 서버가 새 키페어를 생성(private key를 1회 제공하는 경우가 많음)
-    - public_key가 있으면: 기존 공개키를 등록
-    """
+    
     payload: Dict[str, Any] = {"keypair": {"name": name}}
     if public_key and public_key.strip():
         payload["keypair"]["public_key"] = public_key.strip()
@@ -170,15 +154,10 @@ def create_instance(
         "name": name,
         "imageRef": image_id,
         "flavorRef": flavor_id,
-        # NHN에서 subnet 키를 받는 경우가 있고, 환경에 따라 network uuid를 요구하는 경우도 있음.
-        # 우선 subnet id로 시도하고, 실패 시 에러 바디로 요구 값을 확인.
         "networks": [{"subnet": subnet_id}],
         "security_groups": [{"name": n} for n in sg_names] if sg_names else [],
         "min_count": 1,
         "max_count": 1,
-
-        # 일부 환경에서는 imageRef만으로 부팅 디스크 생성이 불가하고,
-        # block_device_mapping_v2로 루트 볼륨(부팅 볼륨)을 명시해야 함.
         "block_device_mapping_v2": [
             {
                 "source_type": "image",
@@ -204,12 +183,8 @@ def create_instance(
     return r.json().get("server", r.json())
 
 
-# -----------------------------
-# UI
-# -----------------------------
 st.title("NHN Cloud: 기존 리소스 선택 → 인스턴스 생성")
 
-# ---- session defaults (pages 간 공유) ----
 st.session_state.setdefault("tenant_id", "")
 st.session_state.setdefault("username", "")
 st.session_state.setdefault("api_password", "")
@@ -236,7 +211,6 @@ if submitted_auth:
         if not tenant_id.strip() or not username.strip() or not api_password.strip():
             raise ValueError("Tenant ID / Username / API Password는 필수입니다.")
 
-        # pages 간 공유를 위해 입력값 저장
         st.session_state.tenant_id = tenant_id.strip()
         st.session_state.username = username.strip()
         st.session_state.api_password = api_password
@@ -260,7 +234,6 @@ else:
 
 st.divider()
 
-# Load existing resources
 st.subheader("1) 기존 리소스 불러오기")
 
 col1, col2 = st.columns(2)
@@ -383,7 +356,6 @@ with st.expander("키페어 생성/등록", expanded=(keypairs_count == 0)):
         except Exception as e:
             st.error(f"실패: {e}")
             
-# Small debug
 with st.expander("조회 결과 미리보기(디버그)"):
     st.json(
         {
@@ -400,7 +372,6 @@ st.divider()
 
 st.subheader("2) 인스턴스 생성 입력")
 
-# Build select options
 
 def _opt(items: List[Dict[str, Any]], label_fn) -> Tuple[List[str], Dict[str, Dict[str, Any]]]:
     mapping: Dict[str, Dict[str, Any]] = {}
@@ -428,7 +399,7 @@ image_labels, image_map = _opt(
         f" | min_ram={im.get('min_ram',0)}MB, min_disk={im.get('min_disk',0)}GB"
     )
 )
-# Flavor는 이미지 선택 후 필터링해서 만들기 때문에 여기서는 만들지 않음.
+
 keypair_labels, keypair_map = _opt(
     resources.get("keypairs", []),
     lambda kp: f"{kp.get('name','')} ({kp.get('name','')})"
@@ -452,7 +423,6 @@ with colA:
         disabled=not bool(vpc_labels),
     )
 
-    # VPC 선택에 따라 서브넷 목록 필터링
     all_subnets = resources.get("subnets", [])
     filtered_subnets = all_subnets
 
@@ -485,7 +455,6 @@ with colB:
         disabled=not bool(image_labels),
     )
 
-    # 이미지 최소 요구사항(min_ram/min_disk)에 맞는 Flavor만 표시(기본 ON)
     filter_flavors = st.checkbox(
         "이미지 요구사항을 만족하는 Flavor만 보기",
         value=True,

@@ -86,7 +86,6 @@ def create_vpc(network_base: str, token: str, name: str, cidrv4: str) -> Dict[st
 
 
 def create_subnet(network_base: str, token: str, vpc_id: str, name: str, cidr: str, gateway: Optional[str]) -> Dict[str, Any]:
-    # NOTE: 이 테넌트/환경에서는 enable_dhcp가 POST에서 허용되지 않음.
     subnet_obj: Dict[str, Any] = {"name": name, "vpc_id": vpc_id, "cidr": cidr}
     if gateway:
         subnet_obj["gateway"] = gateway
@@ -99,7 +98,6 @@ def create_subnet(network_base: str, token: str, vpc_id: str, name: str, cidr: s
 
 st.title("NHN Cloud: VPC/서브넷 생성 + 네트워크 리소스 조회")
 
-# ---- session defaults (pages 간 공유) ----
 st.session_state.setdefault("tenant_id", "")
 st.session_state.setdefault("username", "")
 st.session_state.setdefault("api_password", "")
