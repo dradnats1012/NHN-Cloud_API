@@ -48,17 +48,6 @@ streamlit run nhn_cloud_api/main.py
 4. **인스턴스 생성** — Instance 페이지에서 이미지, 플레이버, 서브넷 등을 선택 후 생성
 5. **플로팅 IP 연결** — Instance 페이지에서 인스턴스에 공인 IP 할당
 
-## 서버 배포 (Ubuntu)
-
-`user_data.sh`를 인스턴스 생성 시 사용자 스크립트로 사용하면 자동 배포됩니다.
-
-```bash
-# 서비스 상태 확인
-systemctl status streamlit
-
-# 실시간 로그
-journalctl -u streamlit -f
-```
 ## 기술 스택
 
 | 구분 | 기술 |
