@@ -135,6 +135,44 @@ def create_keypair(
     return r.json().get("keypair", r.json())
 
 
+def list_ports(network_base: str, token: str, device_id: str) -> List[Dict[str, Any]]:
+    r = requests.get(f"{network_base}/v2.0/ports", headers=_h(token), params={"device_id": device_id}, timeout=30)
+    _raise_for_bad(r)
+    return r.json().get("ports", [])
+
+
+def list_servers(compute_base: str, token: str, tenant_id: str) -> List[Dict[str, Any]]:
+    r = requests.get(f"{compute_base}/v2/{tenant_id}/servers/detail", headers=_h(token), timeout=30)
+    _raise_for_bad(r)
+    return r.json().get("servers", [])
+
+
+def list_floatingips(network_base: str, token: str) -> List[Dict[str, Any]]:
+    r = requests.get(f"{network_base}/v2.0/floatingips", headers=_h(token), timeout=30)
+    _raise_for_bad(r)
+    return r.json().get("floatingips", [])
+
+
+def create_floatingip(network_base: str, token: str, floating_network_id: str) -> Dict[str, Any]:
+    payload = {"floatingip": {"floating_network_id": floating_network_id}}
+    r = requests.post(f"{network_base}/v2.0/floatingips", headers=_h(token), json=payload, timeout=30)
+    _raise_for_bad(r)
+    return r.json().get("floatingip", r.json())
+
+
+def associate_floatingip(network_base: str, token: str, floatingip_id: str, port_id: str) -> Dict[str, Any]:
+    payload = {"floatingip": {"port_id": port_id}}
+    r = requests.put(f"{network_base}/v2.0/floatingips/{floatingip_id}", headers=_h(token), json=payload, timeout=30)
+    _raise_for_bad(r)
+    return r.json().get("floatingip", r.json())
+
+
+def list_external_networks(network_base: str, token: str) -> List[Dict[str, Any]]:
+    r = requests.get(f"{network_base}/v2.0/networks", headers=_h(token), params={"router:external": True}, timeout=30)
+    _raise_for_bad(r)
+    return r.json().get("networks", [])
+
+
 def create_instance(
     compute_base: str,
     token: str,
@@ -582,3 +620,105 @@ if create_btn:
         st.code(str(e))
     except Exception as e:
         st.error(f"실패: {e}")
+
+st.divider()
+st.subheader("3) 플로팅 IP 연결")
+st.caption("인스턴스에 공인 IP를 할당하여 외부에서 접속할 수 있게 합니다.")
+
+_nb = st.session_state.network_base.strip()
+_cb = st.session_state.compute_base.strip()
+_tk = st.session_state.token
+_tid = st.session_state.tenant_id.strip()
+
+if st.button("인스턴스/플로팅IP 불러오기"):
+    try:
+        st.session_state.fip_servers = list_servers(_cb, _tk, _tid)
+        st.session_state.fip_floatingips = list_floatingips(_nb, _tk)
+        try:
+            st.session_state.fip_ext_nets = list_external_networks(_nb, _tk)
+        except Exception:
+            st.session_state.fip_ext_nets = []
+        st.success(f"인스턴스: {len(st.session_state.fip_servers)}개, 플로팅IP: {len(st.session_state.fip_floatingips)}개")
+    except Exception as e:
+        st.error(str(e))
+
+if "fip_servers" not in st.session_state:
+    st.info("먼저 '인스턴스/플로팅IP 불러오기' 버튼을 눌러주세요.")
+else:
+    servers = st.session_state.fip_servers
+    floatingips = st.session_state.fip_floatingips
+    ext_nets = st.session_state.get("fip_ext_nets", [])
+
+    server_opts = {
+        f"{s.get('name','')} ({s.get('id','')}) | {s.get('status','')}": s
+        for s in servers
+    }
+    # 미연결 플로팅 IP만 표시
+    free_fips = [f for f in floatingips if not f.get("port_id")]
+    fip_opts = {
+        f"{f.get('floating_ip_address','')} ({f.get('id','')})": f
+        for f in free_fips
+    }
+    ext_net_opts = {f"{n.get('name','')} ({n.get('id','')})": n for n in ext_nets}
+
+    sel_server = st.selectbox("인스턴스 선택", options=list(server_opts.keys()) or ["(없음)"])
+
+    fip_mode = st.radio("플로팅 IP", ["새로 생성", "기존 미연결 IP 사용"], horizontal=True)
+
+    if fip_mode == "새로 생성":
+        if ext_net_opts:
+            sel_ext_net = st.selectbox("외부 네트워크", options=list(ext_net_opts.keys()), key="fip_ext")
+        else:
+            ext_net_id_manual = st.text_input(
+                "외부 네트워크 ID (직접 입력)",
+                help="외부 네트워크 조회가 안 될 경우 콘솔에서 확인 후 입력하세요.",
+                key="fip_ext_manual",
+            )
+    else:
+        sel_existing_fip = st.selectbox(
+            "미연결 플로팅 IP",
+            options=list(fip_opts.keys()) or ["(없음)"],
+        )
+
+    if st.button("플로팅 IP 연결"):
+        try:
+            if sel_server == "(없음)":
+                raise ValueError("인스턴스를 선택하세요.")
+
+            server_id = server_opts[sel_server].get("id")
+
+            # 인스턴스의 포트 조회
+            ports = list_ports(_nb, _tk, server_id)
+            if not ports:
+                raise ValueError(f"인스턴스({server_id})에 연결된 포트가 없습니다. 인스턴스가 ACTIVE 상태인지 확인하세요.")
+            port_id = ports[0].get("id")
+
+            # 플로팅 IP 생성 또는 선택
+            if fip_mode == "새로 생성":
+                if ext_net_opts:
+                    ext_id = ext_net_opts[sel_ext_net].get("id")
+                else:
+                    ext_id = ext_net_id_manual.strip()
+                    if not ext_id:
+                        raise ValueError("외부 네트워크 ID를 입력하세요.")
+                fip = create_floatingip(_nb, _tk, ext_id)
+                fip_id = fip.get("id")
+                st.success(f"플로팅 IP 생성: {fip.get('floating_ip_address')} ({fip_id})")
+            else:
+                if sel_existing_fip == "(없음)":
+                    raise ValueError("사용 가능한 미연결 플로팅 IP가 없습니다. '새로 생성'을 선택하세요.")
+                fip_id = fip_opts[sel_existing_fip].get("id")
+
+            # 플로팅 IP → 포트 연결
+            result = associate_floatingip(_nb, _tk, fip_id, port_id)
+            st.success(
+                f"플로팅 IP 연결 완료: {result.get('floating_ip_address')} → "
+                f"{server_opts[sel_server].get('name')}"
+            )
+            st.json(result)
+
+        except NhcApiError as e:
+            st.error("플로팅 IP 연결 실패")
+            st.code(str(e))
+        except Exception as e:
+            st.error(f"실패: {e}")
